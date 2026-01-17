@@ -1,0 +1,8 @@
+Micro=~ Log10Actinobacteria+Log10TotalPLFA+Log10mcrA+Log10Fungi+Log10Bacteria [Log10CH4cum]
+sedipro=~ Clay+Log10SWC [Log10CH4cum]
+substrate=~ Ad.Al.V+Log10TN+Log10SOC+Ad.Al.S [Log10CH4cum]
+Micro %~~% substrate
+Log10CH4cum ~ sedipro + Micro + substrate
+Micro ~ depth + sedipro
+sedipro ~ depth
+substrate ~ depth + sedipro

@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>SEM Path Builder — 最终增强版</title>
+<style>
+  /* 样式保持不变 */
+  :root{
+    --blue:#2563eb;
+    --blue-light:#e6f0ff;
+    --muted:#6b7280;
+    --bg:#f5f6fa;
+  }
+  body { font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin:0; background:var(--bg); color:#0f172a; }
+  #controls { background: #0f172a; color: #fff; padding:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  #controls input[type=file] { display:inline-block; }
+  .btn { padding:8px 10px; border-radius:6px; border:0; cursor:pointer; font-size:13px; }
+  .btn-primary { background:var(--blue); color:#fff; }
+  .btn-ghost { background:#e6e9ef; color:#111; }
+  .btn-warn { background:#f59e0b; color:#fff; }
+  .btn-danger { background:#ef4444; color:#fff; }
+  .layout { display:flex; gap:12px; padding:14px; max-width:1280px; margin:12px auto; }
+  .leftcol { width:260px; background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06); padding:12px; }
+  .title { font-weight:700; margin-bottom:6px; }
+  .hint { font-size:12px; color:var(--muted); margin-top:8px; }
+  #colList { max-height:360px; overflow:auto; border-top:1px solid #f1f5f9; padding-top:8px; }
+  .col-item { padding:8px 10px; border-radius:6px; margin-bottom:8px; background:#fafafa; border:1px solid #f1f5f9; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .col-item:hover { background:#f1f5f9; }
+  .panel-right { flex:1; display:flex; flex-direction:column; gap:10px; }
+  .canvas-box { background:#fff; border-radius:8px; padding:10px; border:1px solid #e6eef8; box-shadow:0 2px 8px rgba(0,0,0,0.04); position:relative; align-self: flex-start; }
+  #svgContainer { position:relative; overflow:hidden; border-radius:6px; background:#ffffff; }
+  #svg { display:block; width:100%; height:100%; touch-action:none; background:#ffffff; }
+  .resizer { position:absolute; right:6px; bottom:6px; width:18px; height:18px; cursor:se-resize; border-radius:4px; background:linear-gradient(135deg, rgba(0,0,0,0.12), rgba(0,0,0,0.06)); }
+  .resizer:after{ content:''; display:block; width:10px; height:10px; border-right:2px solid rgba(0,0,0,0.28); border-bottom:2px solid rgba(0,0,0,0.28); transform:rotate(45deg); margin:3px; }
+  .node { position:absolute; background:var(--blue-light); color:#071029; border:2px solid var(--blue); border-radius:8px; padding:8px 12px; min-width:80px; text-align:center; cursor:grab; box-shadow:0 6px 12px rgba(37,99,235,0.12); font-weight:600; user-select:none; }
+  .node.highlight { box-shadow:0 8px 18px rgba(239,68,68,0.18); border-color:#ef4444; }
+  .node.selected { outline:3px solid #ef4444; }
+  #pathDisplayBox { margin-top:10px; background:#fff; border-radius:8px; padding:8px; border:1px solid #e6eef8; min-height:120px; display:flex; flex-direction:column; }
+  #pathTitle { font-weight:700; margin-bottom:6px; }
+  #pathDisplay { font-family:Arial; font-size:13px; color:#0f172a; white-space:pre; overflow:auto; flex:1; padding:6px; background:#fbfdff; border-radius:6px; border:1px dashed #edf2ff; }
+  .path-actions { display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .small { font-size:12px; color:var(--muted); }
+  .status { font-size:13px; color:var(--muted); margin-left:8px; }
+</style>
+</head>
+<body>
+  <div id="controls">
+    <label style="color:#fff;font-weight:600">CSV (首行表头):</label>
+    <input id="csvFile" type="file" accept=".csv" />
+    <label style="color:#fff;font-weight:600">导入路径 (.txt):</label>
+    <input id="importTxt" type="file" accept=".txt" />
+    <button id="exportBtn" class="btn btn-primary">导出路径</button>
+    <button id="exportChooseBtn" class="btn btn-ghost">另存为...</button>
+    <button id="layoutBtn" class="btn btn-ghost">重新布局</button>
+    <button id="connectModeBtn" class="btn btn-warn">连线</button>
+    <button id="deleteModeBtn" class="btn btn-warn">删除模式</button>
+    <div class="status" id="globalStatus"></div>
+  </div>
+  <div class="layout">
+    <div class="leftcol">
+      <div class="title">可选变量（点击/拖动添加）</div>
+      <div id="colList"><div class="small">请先选择 CSV 文件，加载首行表头后显示。</div></div>
+      <div id="pathDisplayBox">
+        <div id="pathTitle">当前路径</div>
+        <div id="pathHint" class="small" style="margin-bottom:6px;color:var(--muted)">说明：每一行格式为 <code>TARGET ~ A + B + C</code>（箭头方向：A → TARGET）</div>
+        <div id="pathDisplay">（暂无路径）</div>
+        <div class="path-actions">
+          <button id="copyPathsBtn" class="btn btn-primary">复制路径</button>
+          <button id="clearPathsBtn" class="btn btn-ghost">清空</button>
+          <span class="small" id="copyStatus"></span>
+        </div>
+      </div>
+    </div>
+    <div class="panel-right">
+      <div class="canvas-box">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-weight:700">画布</div>
+          <div class="small" id="counts">节点: 0 · 路径: 0</div>
+        </div>
+        <div id="svgContainer" style="width: 800px;height:600px;position:relative;">
+          <svg id="svg" width="100%" height="100%"></svg>
+          <div class="resizer" id="resizer" title="拖动改变画布尺寸"></div>
+        </div>
+      </div>
+      <div class="hint">提示：点击一个节点再点击另一个节点以创建箭头（预测 → 因变量）。拖动方框时连线会跟随。双击节点可删除（或启用删除模式后点击删除）。</div>
+    </div>
+  </div>
+<script>
+(() => {
+  /* ---------- 基础变量 & DOM ---------- */
+  const csvFile = document.getElementById('csvFile');
+  const importTxt = document.getElementById('importTxt');
+  const colList = document.getElementById('colList');
+  const svg = document.getElementById('svg');
+  const svgContainer = document.getElementById('svgContainer');
+  const resizer = document.getElementById('resizer');
+  const counts = document.getElementById('counts');
+  const connectModeBtn = document.getElementById('connectModeBtn');
+  const deleteModeBtn = document.getElementById('deleteModeBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const exportChooseBtn = document.getElementById('exportChooseBtn');
+  const layoutBtn = document.getElementById('layoutBtn');
+  const pathDisplay = document.getElementById('pathDisplay');
+  const copyPathsBtn = document.getElementById('copyPathsBtn');
+  const clearPathsBtn = document.getElementById('clearPathsBtn');
+  const globalStatus = document.getElementById('globalStatus');
+  const copyStatus = document.getElementById('copyStatus');
+
+  /* ---------- 程序状态 ---------- */
+  let nodes = [];           // {id,name,el,x,y,w,h}
+  let edges = [];           // {id,srcId,tgtId}
+  let connectSource = null; // id
+  let deleteMode = false;
+  let connectMode = false;
+  const uuid = () => Math.random().toString(36).slice(2,9);
+
+  /* ---------- 辅助函数 ---------- */
+  function updateCounts() {
+    counts.textContent = `节点: ${nodes.length} · 路径: ${edges.length}`;
+  }
+
+  /* ---------- CSV 读取（手动） ---------- */
+  csvFile.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+      if (!lines.length) {
+        colList.innerHTML = '<div class="small">未检测到列名，请检查 CSV</div>';
+        return;
+      }
+      const header = parseCsvHeaderLine(lines[0]);
+      renderColList(header);
+    };
+    r.readAsText(f);
+    e.target.value = '';
+  });
+
+  function parseCsvHeaderLine(line) {
+    const res = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { res.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim() !== '') res.push(cur.trim());
+    return res.filter(x => x !== '');
+  }
+
+  function renderColList(cols) {
+    colList.innerHTML = '';
+    if (!cols.length) {
+      colList.innerHTML = '<div class="small">未检测到列名</div>';
+      return;
+    }
+    cols.forEach(c => {
+      const d = document.createElement('div');
+      d.className = 'col-item';
+      d.draggable = true;                     // <‑‑ 让它可以被拖拽
+      d.innerHTML = `<span>${c}</span><span class="small" style="color:var(--muted)">添加</span>`;
+      d.addEventListener('click', () => addNodeIfNotExists(c));
+      /* --- 拖拽起始时保存变量名 --- */
+      d.addEventListener('dragstart', ev => {
+        ev.dataTransfer.setData('text/plain', c);
+        // 为了在 iOS/Android 上获得更好的视觉反馈，设置一个空的拖拽图标
+        const img = new Image();
+        img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"%3E%3C/svg%3E';
+        ev.dataTransfer.setDragImage(img, 0, 0);
+      });
+      colList.appendChild(d);
+    });
+  }
+
+  /* ---------- 默认 CSV 自动读取 ---------- */
+  // 多种路径尝试方案
+  const possiblePaths = [
+    '/temp/BF_piecewiseSEM.csv',
+    '/temp/acquire_sem_path_file.csv',
+    './data/test.csv'
+  ];
+
+  // 方案1: 尝试多个可能的路径
+  async function tryMultiplePaths() {
+    for (const path of possiblePaths) {
+      try {
+        console.log(`尝试加载: ${path}`);
+        const response = await fetch(path, {cache: 'no-store'});
+        if (!response.ok) continue;
+
+        const text = await response.text();
+        const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+        if (!lines.length) continue;
+
+        const header = parseCsvHeaderLine(lines[0]);
+        if (header.length === 0) continue;
+
+        renderColList(header);
+        globalStatus.textContent = `成功加载: ${path}`;
+        setTimeout(() => globalStatus.textContent = '', 3000);
+        return true;
+      } catch (error) {
+        console.log(`路径 ${path} 失败:`, error.message);
+        continue;
+      }
+    }
+    return false;
+  }
+
+  // 方案2: 使用XMLHttpRequest（在某些情况下更可靠）
+  function tryWithXHR() {
+    return new Promise((resolve) => {
+      let success = false;
+      let attempts = 0;
+
+      possiblePaths.forEach(path => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', path, true);
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4) {
+            attempts++;
+            if (xhr.status === 200 && !success) {
+              success = true;
+              const text = xhr.responseText;
+              const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+              if (lines.length) {
+                const header = parseCsvHeaderLine(lines[0]);
+                if (header.length > 0) {
+                  renderColList(header);
+                  globalStatus.textContent = `XHR成功加载: ${path}`;
+                  setTimeout(() => globalStatus.textContent = '', 3000);
+                  resolve(true);
+                }
+              }
+            }
+            // 所有尝试都失败
+            if (attempts === possiblePaths.length && !success) {
+              resolve(false);
+            }
+          }
+        };
+        xhr.onerror = function() {
+          attempts++;
+          if (attempts === possiblePaths.length && !success) {
+            resolve(false);
+          }
+        };
+        xhr.send();
+      });
+    });
+  }
+
+  // 方案3: 如果上述都失败，提供手动加载选项
+  function showManualOption() {
+    const manualDiv = document.createElement('div');
+    manualDiv.innerHTML = `
+      <div style="background:#fff3cd; border:1px solid #ffeaa7; border-radius:6px; padding:10px; margin:10px 0;">
+        <div style="font-weight:bold; color:#856404;">自动加载CSV失败</div>
+        <div style="font-size:12px; color:#856404; margin:5px 0;">
+          可能原因：<br>
+          • 文件路径不正确<br>
+          • 浏览器安全限制<br>
+          • 需要本地服务器环境
+        </div>
+        <button id="retryLoad" class="btn" style="background:#f59e0b; color:white; margin-top:5px;">重新尝试加载</button>
+        <div style="font-size:11px; margin-top:5px;">或使用上方"选择CSV文件"手动加载</div>
+      </div>
+    `;
+    colList.appendChild(manualDiv);
+
+    document.getElementById('retryLoad').addEventListener('click', () => {
+      manualDiv.remove();
+      loadDefaultCsv();
+    });
+  }
+
+  // 主加载函数
+  async function loadDefaultCsv() {
+    globalStatus.textContent = '正在加载默认CSV文件...';
+
+    // 先尝试fetch方法
+    const fetchSuccess = await tryMultiplePaths();
+    if (fetchSuccess) return;
+
+    // 如果fetch失败，尝试XHR方法
+    const xhrSuccess = await tryWithXHR();
+    if (xhrSuccess) return;
+
+    // 所有方法都失败
+    globalStatus.textContent = '自动加载失败，请手动选择CSV文件';
+    setTimeout(() => globalStatus.textContent = '', 5000);
+    showManualOption();
+
+    console.error('所有CSV加载尝试都失败了。请检查：');
+    console.error('1. 文件是否存在于以下路径之一:', possiblePaths);
+    console.error('2. 是否通过HTTP服务器运行（而不是直接打开HTML文件）');
+    console.error('3. 服务器是否配置了正确的MIME类型');
+  }
+
+  // 页面加载完立即尝试读取
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(loadDefaultCsv, 100); // 稍等页面完全加载
+  });
+
+  /* ---------- 节点管理 ---------- */
+  function addNodeIfNotExists(name, x = null, y = null) {
+    if (nodes.find(n => n.name === name)) {
+      globalStatus.textContent = `变量 "${name}" 已存在`;
+      setTimeout(() => globalStatus.textContent = '', 1800);
+      return;
+    }
+    addNode(name, x, y);
+  }
+
+  function addNode(name, x = null, y = null) {
+    const nodeEl = document.createElement('div');
+    nodeEl.className = 'node';
+    nodeEl.textContent = name;
+    const containerRect = svgContainer.getBoundingClientRect();
+    const nx = (x !== null) ? x : (containerRect.width / 2 - 60) + (Math.random() - 0.5) * 180;
+    const ny = (y !== null) ? y : (containerRect.height / 2 - 20) + (Math.random() - 0.5) * 120;
+    nodeEl.style.left = nx + 'px';
+    nodeEl.style.top = ny + 'px';
+    svgContainer.appendChild(nodeEl);
+    const id = uuid();
+    const node = { id, name, el: nodeEl, x: nx, y: ny, w: nodeEl.offsetWidth, h: nodeEl.offsetHeight };
+    nodes.push(node);
+    updateCounts();
+    /* 事件绑定 */
+    nodeEl.addEventListener('mousedown', ev => nodeMouseDown(ev, node));
+    nodeEl.addEventListener('click', ev => nodeClick(ev, node));
+    nodeEl.addEventListener('dblclick', ev => {
+      ev.stopPropagation();
+      if (deleteMode) deleteNode(node.id);
+    });
+    // 让新建节点的尺寸能够在下一帧更新后被记录
+    setTimeout(() => {
+      node.w = nodeEl.offsetWidth;
+      node.h = nodeEl.offsetHeight;
+      updateEdges();
+    }, 0);
+  }
+
+  function deleteNode(nodeId) {
+    const idx = nodes.findIndex(n => n.id === nodeId);
+    if (idx === -1) return;
+    const node = nodes[idx];
+    node.el?.parentNode?.removeChild(node.el);
+    nodes.splice(idx, 1);
+    edges = edges.filter(e => e.srcId !== nodeId && e.tgtId !== nodeId);
+    if (connectSource === nodeId) connectSource = null;
+    updateEdges();
+  }
+
+  /* ---------- 节点拖动（在画布上移动） ---------- */
+  function nodeMouseDown(ev, node) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const startX = ev.clientX, startY = ev.clientY;
+    const initX = node.x, initY = node.y;
+    function onMove(e) {
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      node.x = initX + dx;
+      node.y = initY + dy;
+      node.el.style.left = node.x + 'px';
+      node.el.style.top = node.y + 'px';
+      updateEdges();
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      node.el.style.cursor = 'grab';
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    node.el.style.cursor = 'grabbing';
+  }
+
+  /* ---------- 连线 / 删除模式 ---------- */
+  function nodeClick(ev, node) {
+    ev.stopPropagation();
+    if (deleteMode) {
+      deleteNode(node.id);
+      return;
+    }
+    if (!connectSource) {
+      connectSource = node.id;
+      highlightNode(node.id, true);
+    } else {
+      if (connectSource === node.id) {
+        highlightNode(connectSource, false);
+        connectSource = null;
+        return;
+      }
+      if (connectMode) addEdge(connectSource, node.id);
+      highlightNode(connectSource, false);
+      connectSource = null;
+      if (!connectMode) {
+        connectSource = node.id;
+        highlightNode(node.id, true);
+      }
+    }
+  }
+
+  function highlightNode(nodeId, on) {
+    const n = nodes.find(x => x.id === nodeId);
+    if (!n) return;
+    if (on) n.el.classList.add('selected'); else n.el.classList.remove('selected');
+  }
+
+  function addEdge(srcId, tgtId) {
+    if (srcId === tgtId) return;
+    if (edges.find(e => e.srcId === srcId && e.tgtId === tgtId)) return;
+    edges.push({ id: uuid(), srcId, tgtId });
+    updateEdges();
+  }
+
+  /* ---------- 计算节点矩形交点（让箭头不遮住节点） ---------- */
+  function rectIntersectionPoint(node, towardX, towardY) {
+    const left = node.x, top = node.y, w = node.w, h = node.h;
+    const cx = left + w / 2, cy = top + h / 2;
+    const dx = towardX - cx, dy = towardY - cy;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return { x: cx, y: cy };
+
+    const tCandidates = [];
+
+    const leftX = cx - w / 2;
+    const tLeft = (leftX - cx) / dx;
+    if (tLeft > 0) {
+      const yAt = cy + tLeft * dy;
+      if (yAt >= top && yAt <= top + h) tCandidates.push({ t: tLeft, x: leftX, y: yAt });
+    }
+
+    const rightX = cx + w / 2;
+    const tRight = (rightX - cx) / dx;
+    if (tRight > 0) {
+      const yAt = cy + tRight * dy;
+      if (yAt >= top && yAt <= top + h) tCandidates.push({ t: tRight, x: rightX, y: yAt });
+    }
+
+    const topY = cy - h / 2;
+    const tTop = (topY - cy) / dy;
+    if (tTop > 0) {
+      const xAt = cx + tTop * dx;
+      if (xAt >= left && xAt <= left + w) tCandidates.push({ t: tTop, x: xAt, y: topY });
+    }
+
+    const bottomY = cy + h / 2;
+    const tBottom = (bottomY - cy) / dy;
+    if (tBottom > 0) {
+      const xAt = cx + tBottom * dx;
+      if (xAt >= left && xAt <= left + w) tCandidates.push({ t: tBottom, x: xAt, y: bottomY });
+    }
+
+    if (!tCandidates.length) {
+      const norm = Math.sqrt(dx * dx + dy * dy) || 1;
+      return { x: cx + (dx / norm) * w / 2, y: cy + (dy / norm) * h / 2 };
+    }
+
+    tCandidates.sort((a, b) => a.t - b.t);
+    const chosen = tCandidates[0];
+    const norm = Math.sqrt(dx * dx + dy * dy) || 1;
+    const offset = 6; // 让箭头尖端略微超出矩形
+    return { x: chosen.x + (dx / norm) * offset, y: chosen.y + (dy / norm) * offset };
+  }
+
+  /* ---------- 绘制/更新连线 ---------- */
+  function updateEdges() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const ns = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(ns, 'defs');
+
+    const marker = document.createElementNS(ns, 'marker');
+    marker.setAttribute('id', 'arrowNormal');
+    marker.setAttribute('markerUnits', 'userSpaceOnUse');
+    marker.setAttribute('markerWidth', '10');
+    marker.setAttribute('markerHeight', '10');
+    marker.setAttribute('refX', '10');
+    marker.setAttribute('refY', '5');
+    marker.setAttribute('orient', 'auto-start-reverse');
+    const markerPath = document.createElementNS(ns, 'path');
+    markerPath.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+    markerPath.setAttribute('fill', '#6b7280');
+    marker.appendChild(markerPath);
+    defs.appendChild(marker);
+
+    const markerHover = document.createElementNS(ns, 'marker');
+    markerHover.setAttribute('id', 'arrowHover');
+    markerHover.setAttribute('markerUnits', 'userSpaceOnUse');
+    markerHover.setAttribute('markerWidth', '12');
+    markerHover.setAttribute('markerHeight', '12');
+    markerHover.setAttribute('refX', '12');
+    markerHover.setAttribute('refY', '6');
+    markerHover.setAttribute('orient', 'auto-start-reverse');
+    const markerPathH = document.createElementNS(ns, 'path');
+    markerPathH.setAttribute('d', 'M0,0 L12,6 L0,12 z');
+    markerPathH.setAttribute('fill', '#ef4444');
+    markerHover.appendChild(markerPathH);
+    defs.appendChild(markerHover);
+
+    svg.appendChild(defs);
+
+    edges.forEach(e => {
+      const src = nodes.find(n => n.id === e.srcId);
+      const tgt = nodes.find(n => n.id === e.tgtId);
+      if (!src || !tgt) return;
+
+      const srcCenter = { x: src.x + src.w / 2, y: src.y + src.h / 2 };
+      const tgtCenter = { x: tgt.x + tgt.w / 2, y: tgt.y + tgt.h / 2 };
+      const start = rectIntersectionPoint(src, tgtCenter.x, tgtCenter.y);
+      const end   = rectIntersectionPoint(tgt, srcCenter.x, srcCenter.y);
+      const d = `M ${start.x},${start.y} L ${end.x},${end.y}`;
+
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('stroke', '#6b7280');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('marker-end', 'url(#arrowNormal)');
+      path.style.transition = 'stroke 0.08s, stroke-width 0.08s';
+      svg.appendChild(path);
+
+      const hit = document.createElementNS(ns, 'path');
+      hit.setAttribute('d', d);
+      hit.setAttribute('stroke', 'rgba(0,0,0,0)');
+      hit.setAttribute('stroke-width', '14');
+      hit.setAttribute('fill', 'none');
+      hit.style.cursor = deleteMode ? 'pointer' : 'default';
+      hit.addEventListener('mouseenter', () => {
+        path.setAttribute('stroke', '#ef4444');
+        path.setAttribute('stroke-width', '3.6');
+        path.setAttribute('marker-end', 'url(#arrowHover)');
+        highlightNodeById(src.id, true);
+        highlightNodeById(tgt.id, true);
+      });
+      hit.addEventListener('mouseleave', () => {
+        path.setAttribute('stroke', '#6b7280');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('marker-end', 'url(#arrowNormal)');
+        highlightNodeById(src.id, false);
+        highlightNodeById(tgt.id, false);
+      });
+      hit.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (deleteMode) {
+          edges = edges.filter(x => x !== e);
+          updateEdges();
+        }
+      });
+      svg.appendChild(hit);
+    });
+
+    nodes.forEach(n => {
+      n.w = n.el.offsetWidth;
+      n.h = n.el.offsetHeight;
+      n.el.style.left = n.x + 'px';
+      n.el.style.top = n.y + 'px';
+    });
+    updateCounts();
+    updatePathText();
+  }
+
+  function highlightNodeById(id, on) {
+    const n = nodes.find(x => x.id === id);
+    if (!n) return;
+    if (on) n.el.classList.add('highlight'); else n.el.classList.remove('highlight');
+  }
+
+  /* ---------- 实时路径文本 ---------- */
+  function updatePathText() {
+    const grouped = {};
+    edges.forEach(e => {
+      const tgt = nodes.find(n => n.id === e.tgtId);
+      const src = nodes.find(n => n.id === e.srcId);
+      if (!tgt || !src) return;
+      if (!grouped[tgt.name]) grouped[tgt.name] = [];
+      grouped[tgt.name].push(src.name);
+    });
+    const lines = Object.keys(grouped).sort().map(k => `${k} ~ ${grouped[k].join(' + ')}`);
+    pathDisplay.textContent = lines.length ? lines.join('\n') : '（暂无路径）';
+  }
+
+  /* ---------- 复制路径 ---------- */
+  copyPathsBtn.addEventListener('click', async () => {
+    const txt = pathDisplay.textContent;
+    try {
+      await navigator.clipboard.writeText(txt);
+      copyStatus.textContent = '已复制';
+      setTimeout(() => copyStatus.textContent = '', 1400);
+    } catch (err) {
+      copyStatus.textContent = '复制失败（请手动复制）';
+      setTimeout(() => copyStatus.textContent = '', 1800);
+    }
+  });
+
+  /* ---------- 清空 ---------- */
+  clearPathsBtn.addEventListener('click', () => {
+    nodes.forEach(n => { n.el?.parentNode?.removeChild(n.el); });
+    nodes = []; edges = []; connectSource = null;
+    updateEdges();
+  });
+
+  /* ---------- 导出（默认文件名） ---------- */
+  exportBtn.addEventListener('click', () => {
+    const txt = pathDisplay.textContent;
+    const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sem_paths.txt';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    globalStatus.textContent = '已导出 sem_paths.txt（浏览器下载）';
+    setTimeout(() => globalStatus.textContent = '', 1600);
+  });
+
+  /* ---------- 另存为（File System Access API fallback） ---------- */
+  exportChooseBtn.addEventListener('click', async () => {
+    const txt = pathDisplay.textContent;
+    if (window.showSaveFilePicker) {
+      try {
+        const opts = { types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }], suggestedName: 'sem_paths.txt' };
+        const handle = await window.showSaveFilePicker(opts);
+        const writable = await handle.createWritable();
+        await writable.write(txt);
+        await writable.close();
+        globalStatus.textContent = '已保存到指定位置';
+        setTimeout(() => globalStatus.textContent = '', 1600);
+        return;
+      } catch (err) {
+        // 用户取消或不支持，继续走下载路径
+      }
+    }
+    const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sem_paths.txt';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    globalStatus.textContent = '浏览器不支持另存为，已使用默认下载';
+    setTimeout(() => globalStatus.textContent = '', 2000);
+  });
+
+  /* ---------- 导入文本路径 ---------- */
+  importTxt.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      const txt = ev.target.result.trim();
+      if (!txt) return;
+      const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(l => l.length);
+      // 清空旧模型
+      nodes.forEach(n => { n.el?.parentNode?.removeChild(n.el); });
+      nodes = []; edges = [];
+
+      const vars = new Set();
+      const parsed = [];
+      lines.forEach(line => {
+        const parts = line.split('~');
+        if (parts.length < 2) return;
+        const tgt = parts[0].trim();
+        const rhs = parts[1].trim();
+        const preds = rhs.split('+').map(s => s.trim()).filter(s => s);
+        vars.add(tgt);
+        preds.forEach(p => vars.add(p));
+        parsed.push({ tgt, preds });
+      });
+
+      const arr = Array.from(vars);
+      const rect = svgContainer.getBoundingClientRect();
+      const cx = rect.width / 2, cy = rect.height / 2;
+      const R = Math.min(cx, cy) - 120;
+      arr.forEach((v, i) => {
+        const angle = (2 * Math.PI * i) / arr.length;
+        const x = cx + R * Math.cos(angle);
+        const y = cy + R * Math.sin(angle);
+        addNode(v, x, y);
+      });
+
+      parsed.forEach(p => {
+        const tgtNode = nodes.find(n => n.name === p.tgt);
+        p.preds.forEach(pred => {
+          const srcNode = nodes.find(n => n.name === pred);
+          if (srcNode && tgtNode) addEdge(srcNode.id, tgtNode.id);
+        });
+      });
+
+      updateEdges();
+      importTxt.value = '';
+      globalStatus.textContent = '路径已导入并重建节点/连线';
+      setTimeout(() => globalStatus.textContent = '', 1600);
+    };
+    r.readAsText(f);
+  });
+
+  /* ---------- 自动布局 ---------- */
+  layoutBtn.addEventListener('click', () => {
+    if (!nodes.length) return;
+    const rect = svgContainer.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    const R = Math.min(cx, cy) - 120;
+    nodes.forEach((n, i) => {
+      const angle = (2 * Math.PI * i) / nodes.length;
+      n.x = cx + R * Math.cos(angle);
+      n.y = cy + R * Math.sin(angle);
+      n.el.style.left = n.x + 'px';
+      n.el.style.top = n.y + 'px';
+    });
+    updateEdges();
+  });
+
+  /* ---------- 连线模式切换 ---------- */
+  connectModeBtn.addEventListener('click', () => {
+    connectMode = !connectMode;
+    connectModeBtn.textContent = connectMode ? '连线模式（已启用）' : '连线';
+    connectModeBtn.className = connectMode ? 'btn btn-primary' : 'btn btn-warn';
+    if (!connectMode && connectSource) {
+      highlightNode(connectSource, false);
+      connectSource = null;
+    }
+    globalStatus.textContent = connectMode ? '连线模式已启用' : '';
+    setTimeout(() => globalStatus.textContent = '', 1200);
+  });
+
+  /* ---------- 删除模式切换 ---------- */
+  deleteModeBtn.addEventListener('click', () => {
+    deleteMode = !deleteMode;
+    deleteModeBtn.textContent = deleteMode ? '删除模式（点击节点或路径删除）' : '删除模式';
+    deleteModeBtn.className = deleteMode ? 'btn btn-danger' : 'btn btn-warn';
+    globalStatus.textContent = deleteMode ? '删除模式已启用' : '';
+    setTimeout(() => globalStatus.textContent = '', 1200);
+    if (!deleteMode) nodes.forEach(n => n.el.classList.remove('highlight'));
+  });
+
+  /* ---------- 画布尺寸拖拽 ---------- */
+  (function setupResizer() {
+    let resizing = false, startX = 0, startY = 0, startW = 0, startH = 0;
+    const layoutEl = document.querySelector('.layout');
+    resizer.addEventListener('mousedown', e => {
+      e.preventDefault();
+      resizing = true;
+      startX = e.clientX; startY = e.clientY;
+      const rect = svgContainer.getBoundingClientRect();
+      startW = rect.width; startH = rect.height;
+      document.body.style.userSelect = 'none';
+    });
+    window.addEventListener('mousemove', e => {
+      if (!resizing) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      const newW = Math.max(400, startW + dx), newH = Math.max(300, startH + dy);
+      svgContainer.style.width = newW + 'px';
+      svgContainer.style.height = newH + 'px';
+      layoutEl.style.maxWidth = Math.max(1280, 260 + 12 + newW) + 'px';
+      updateEdges();
+    });
+    window.addEventListener('mouseup', () => {
+      resizing = false;
+      document.body.style.userSelect = '';
+    });
+  })();
+
+  /* ---------- 画布点空白取消连线起点 ---------- */
+  svgContainer.addEventListener('click', () => {
+    if (connectSource) {
+      const prev = nodes.find(n => n.id === connectSource);
+      prev?.el?.classList?.remove('selected');
+      connectSource = null;
+    }
+  });
+
+  /* ---------- 拖拽变量到画布添加节点 ---------- */
+  svgContainer.addEventListener('dragover', ev => {
+    ev.preventDefault();          // 必须阻止默认，才能触发 drop
+  });
+  svgContainer.addEventListener('drop', ev => {
+    ev.preventDefault();
+    const name = ev.dataTransfer.getData('text/plain');
+    if (!name) return;
+    const rect = svgContainer.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    addNodeIfNotExists(name, x, y);
+  });
+
+  /* ---------- 初始信息 ---------- */
+  pathDisplay.textContent = '（暂无路径）';
+
+  /* ---------- 调试导出 ---------- */
+  window._sem = { nodes, edges, updateEdges };
+})();
+</script>
+</body>
+</html>

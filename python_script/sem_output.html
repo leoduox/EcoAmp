@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>picewiseSEM 结果展示 (由EcoAmp生成)</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #f8f9fa;
+    margin: 40px auto;
+    max-width: 900px;
+    line-height: 1.6;
+    color: #333;
+  }
+  h1 {
+    text-align: center;
+    color: #2563eb;
+    margin-bottom: 30px;
+  }
+  h2 {
+    margin-top: 40px;
+    color: #1e3a8a;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 4px;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    position: relative;
+    font-size: 15px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+
+<h1>picewiseSEM 结果展示 (由EcoAmp生成)</h1>
+
+<h2>Model used in EcoAmp</h2>
+<div class="code-block">
+  <pre>ABRR ~ SCEC + Org + SBD + MAT
+MAT ~ SBD
+Org ~ SBD</pre>
+</div>
+
+<h2>R Code for piecewiseSEM</h2>
+<div class="code-block">
+  <pre>psem(
+  lm(ABRR ~ SCEC + Org + SBD + MAT, data = input_data),
+  lm(MAT ~ SBD, data = input_data),
+  lm(Org ~ SBD, data = input_data)
+)</pre>
+</div>
+
+<h2>picewiseSEM Output</h2>
+<div class="code-block">
+  <pre>Structural Equation Model of sem 
+
+Call:
+  ABRR ~ SCEC + Org + SBD + MAT
+  MAT ~ SBD
+  Org ~ SBD
+
+    AIC
+ 590.338
+
+---
+Tests of directed separation:
+
+    Independ.Claim Test.Type DF Crit.Value P.Value  
+  Org ~ SCEC + ...      coef 22     2.0833  0.0491 *
+  MAT ~ SCEC + ...      coef 22    -1.4240  0.1685  
+   MAT ~ Org + ...      coef 22     2.3245  0.0297 *
+
+--
+Global goodness-of-fit:
+
+Chi-Squared = 20.023 with P-value = 0 and on 3 degrees of freedom
+Fisher's C = 16.623 with P-value = 0.011 and on 6 degrees of freedom
+
+---
+Coefficients:
+
+  Response Predictor   Estimate Std.Error DF Crit.Value P.Value Std.Estimate   
+      ABRR      SCEC     0.0085    0.0158 20     0.5406  0.5947       0.1118   
+      ABRR       Org     0.0000    0.0000 20     0.4713  0.6425       0.1040   
+      ABRR       SBD    -0.5509    0.5666 20    -0.9722  0.3426      -0.1568   
+      ABRR       MAT     0.0586    0.0199 20     2.9382  0.0081       0.6305 **
+       MAT       SBD    -8.0578    7.7010 23    -1.0463  0.3063      -0.2132   
+       Org       SBD -1976.9545 4037.4904 23    -0.4896  0.6290      -0.1016   
+
+  Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05
+
+---
+Individual R-squared:
+
+  Response method R.squared
+      ABRR   none      0.53
+       MAT   none      0.05
+       Org   none      0.01</pre>
+</div>
+
+</body>
+</html>
