@@ -2,7 +2,7 @@
 
 
 
-[English](https://github.com/leoduox/EcoAmp/blob/main/README.md) | [简体中文](https://github.com/leoduox/EcoAmp/blob/main/README%20_zh.md)
+[English](https://github.com/leoduox/EcoAmp/blob/main/README.md) | [简体中文](https://github.com/leoduox/EcoAmp/blob/main/README_zh.md)
 
 ## Overview
 
