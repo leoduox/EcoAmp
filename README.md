@@ -8,7 +8,7 @@
 
 EcoAmp, a software for **<u>Eco</u>**logists to analyse **<u>Amp</u>**licon data. EcoAmp is a cross-platform graphical application that integrates widely used microbial community analysis scripts implemented in R and Python. It provides a comprehensive set of functions, including OTU/ASV data normalization, alpha and beta diversity analysis, differential abundance testing, community structure visualization, environmental factor interpretation, and random forest modeling.
 
-![GA](http://image.leoduo.cn/uploads/20251207_imeta_stackbar/GA.jpg)
+![GA](https://www.leoduo.cn/wp-content/uploads/62b1fa162db5478170076828ba9e9b0d.webp)
 
 
 
@@ -62,5 +62,5 @@ You can select the function to fill in the sample data, and then click "Start".
 
 
 
-![20260120004338](http://image.leoduo.cn/uploads/20251207_imeta_stackbar/20260120004338.png)
+![20260120004338](https://www.leoduo.cn/wp-content/uploads/415f61e5f27dd9dc81881298037af7b5.webp)
 

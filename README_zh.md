@@ -8,7 +8,7 @@
 
 EcoAmp 是一款专为生态学家用来分析扩增子数据设计的软件（a software for **<u>Eco</u>**logists to analyse **<u>Amp</u>**licon data）。EcoAmp 是一款跨平台的图形化应用程序，它整合了在 R 和 Python 中实现的广泛使用的微生物群落分析脚本。该软件提供了丰富的功能，包括 OTU/ASV 数据标准化、α和β多样性分析、差异丰度测试、群落结构可视化、环境因素解释以及随机森林建模。
 
-![GA](http://image.leoduo.cn/uploads/20251207_imeta_stackbar/GA.jpg)
+![GA](https://www.leoduo.cn/wp-content/uploads/6f2f01b16565fa6ef0e20d96345aa361.webp)
 
 
 
@@ -57,5 +57,5 @@ Windows用户启动EcoAmp.exe，macOS双击EcoAmp.command启动
 
 可以选择功能进行填充示例数据，然后点击运行
 
-![20260120004338](http://image.leoduo.cn/uploads/20251207_imeta_stackbar/20260120004338.png)
+![20260120004338](https://www.leoduo.cn/wp-content/uploads/415f61e5f27dd9dc81881298037af7b5.webp)
 
