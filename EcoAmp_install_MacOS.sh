@@ -1,87 +1,156 @@
 #!/bin/bash
-# set -e 遇错立即停止，确保安全
 set -e
 
 echo "==============================================="
-echo "        EcoAmp MacOS 一键安装程序 (自动更新版)"
+echo "      EcoAmp MacOS 一键安装程序 (便携安装版)"
 echo "==============================================="
 
-# 1. 检测系统架构与安装 Conda
-# ------------------------------------------------
-ARCH=$(uname -m)
+# 获取当前脚本运行的目录
+CURRENT_RUN_DIR="$(pwd)"
+# 定义安装目录为当前目录下的 EcoAmp 文件夹
+INSTALL_DIR="$CURRENT_RUN_DIR/EcoAmp"
+
+echo "[i] 安装目标位置: $INSTALL_DIR"
+echo "[i] 注意：安装完成后，主程序和启动脚本都在此文件夹内。"
+echo "==============================================="
+
+ARCH="$(uname -m)"
 echo "检测到系统架构: $ARCH"
 
-if command -v conda &> /dev/null
-then
-    echo "[✔] 已检测到 conda, 跳过安装"
-else
-    echo "[!] 未检测到 conda，开始安装 Miniconda..."
-    if [ "$ARCH" = "arm64" ]; then
-        curl -L -O https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh
-        bash Miniconda3-latest-MacOSX-arm64.sh -b -p $HOME/miniconda3
-        rm Miniconda3-latest-MacOSX-arm64.sh
-    else
-        curl -L -O https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh
-        bash Miniconda3-latest-MacOSX-x86_64.sh -b -p $HOME/miniconda3
-        rm Miniconda3-latest-MacOSX-x86_64.sh
+# -----------------------------
+# 工具函数：初始化 conda（适配各种安装位置）
+# -----------------------------
+init_conda() {
+  # 1) 如果 conda 命令可用，优先用 conda info --base 获取 base
+  if command -v conda >/dev/null 2>&1; then
+    local base
+    base="$(conda info --base 2>/dev/null || true)"
+    if [ -n "$base" ] && [ -f "$base/etc/profile.d/conda.sh" ] && [ -x "$base/bin/conda" ]; then
+      eval "$("$base/bin/conda" shell.bash hook)"
+      export CONDA_BASE="$base"
+      return 0
     fi
-    export PATH="$HOME/miniconda3/bin:$PATH"
+  fi
+
+  # 2) 常见路径兜底
+  local candidates=(
+    "$HOME/miniconda3"
+    "$HOME/anaconda3"
+    "/opt/anaconda3"
+    "/opt/miniconda3"
+    "/opt/homebrew/Caskroom/miniconda/base"
+    "/opt/homebrew/Caskroom/anaconda/base"
+    "/usr/local/anaconda3"
+    "/usr/local/miniconda3"
+  )
+
+  for base in "${candidates[@]}"; do
+    if [ -f "$base/etc/profile.d/conda.sh" ] && [ -x "$base/bin/conda" ]; then
+      eval "$("$base/bin/conda" shell.bash hook)"
+      export CONDA_BASE="$base"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# -----------------------------
+# 1. 检测 conda，不存在则安装 Miniconda
+# -----------------------------
+if command -v conda >/dev/null 2>&1; then
+  echo "[✔] 已检测到 conda, 尝试初始化..."
+  if init_conda; then
+    echo "[✔] Conda 初始化成功: $CONDA_BASE"
+  else
+    echo "[!] 检测到 conda 命令，但无法定位 base，将尝试安装 Miniconda..."
+    INSTALL_MINICONDA=1
+  fi
+else
+  echo "[!] 未检测到 conda，开始安装 Miniconda..."
+  INSTALL_MINICONDA=1
 fi
 
-# 初始化 conda (兼容不同 shell)
-source $HOME/miniconda3/etc/profile.d/conda.sh
+if [ "${INSTALL_MINICONDA:-0}" = "1" ]; then
+  if [ "$ARCH" = "arm64" ]; then
+    MINICONDA_SH="Miniconda3-latest-MacOSX-arm64.sh"
+  else
+    MINICONDA_SH="Miniconda3-latest-MacOSX-x86_64.sh"
+  fi
 
+  curl -L -O "https://repo.anaconda.com/miniconda/$MINICONDA_SH"
+  bash "$MINICONDA_SH" -b -p "$HOME/miniconda3"
+  rm -f "$MINICONDA_SH"
+
+  export PATH="$HOME/miniconda3/bin:$PATH"
+
+  echo "[+] Miniconda 安装完成，初始化 conda..."
+  if init_conda; then
+    echo "[✔] Conda 初始化成功: $CONDA_BASE"
+  else
+    echo "[✘] Miniconda 已安装但初始化失败，请检查 $HOME/miniconda3"
+    exit 1
+  fi
+fi
+
+# -----------------------------
 # 2. 配置环境与安装依赖
-# ------------------------------------------------
+# -----------------------------
 echo "[+] 配置 conda 镜像源（清华源）"
-# 这里的配置为了防止报错，加了 || true
 conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main || true
 conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free || true
 conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge || true
 conda config --set show_channel_urls yes || true
 conda config --set auto_activate_base false || true
 
-echo "[+] 检查环境 EcoAmp_py3115 是否存在"
-if conda env list | grep -q "EcoAmp_py3115"; then
-    echo "[✔] Conda 环境 EcoAmp_py3115 已存在，跳过创建"
+ENV_NAME="EcoAmp_py3115"
+
+echo "[+] 检查环境 $ENV_NAME 是否存在"
+if conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+  echo "[✔] Conda 环境 $ENV_NAME 已存在，跳过创建"
 else
-    echo "[+] 创建 Conda 环境 EcoAmp_py3115"
-    conda create -y -n EcoAmp_py3115 python=3.11.5
+  echo "[+] 创建 Conda 环境 $ENV_NAME"
+  conda create -y -n "$ENV_NAME" python=3.11.5
 fi
 
-# 激活环境
-conda activate EcoAmp_py3115
+echo "[+] 激活环境 $ENV_NAME"
+conda activate "$ENV_NAME"
 
 echo "[+] 安装 Python 依赖"
 python -m pip install --upgrade pip
-
-# 注意：移除了 wmi (Windows专用)，保留了 requests, tqdm 用于下载脚本
 python -m pip install \
-et_xmlfile==2.0.0 \
-numpy \
-openpyxl==3.1.5 \
-python-dateutil==2.9.0.post0 \
-pytz \
-six==1.17.0 \
-tzdata \
-networkx \
-pandas==2.2.3 \
-PyMuPDF==1.25.1 \
-pyqt6==6.6.0 \
-pyqt6-qt6==6.6.0 \
-pyqt6_sip==13.8.0 \
-requests \
-markdown \
-flask \
-cryptography \
-tqdm \
-psutil==7.1.2
+  et_xmlfile==2.0.0 \
+  numpy \
+  openpyxl==3.1.5 \
+  python-dateutil==2.9.0.post0 \
+  pytz \
+  six==1.17.0 \
+  tzdata \
+  networkx \
+  pandas==2.2.3 \
+  PyMuPDF==1.25.1 \
+  pyqt6==6.6.0 \
+  pyqt6-qt6==6.6.0 \
+  pyqt6_sip==13.8.0 \
+  requests \
+  markdown \
+  flask \
+  cryptography \
+  tqdm \
+  psutil==7.1.2 \
+  pyobjc-framework-Cocoa
 
-# 3. 生成 Python 下载脚本 (核心修改)
-# ------------------------------------------------
+# -----------------------------
+# 3. 生成并运行下载脚本
+# -----------------------------
+# 创建安装目录
+mkdir -p "$INSTALL_DIR"
+
 echo "[+] 生成动态下载脚本 download_EcoAmp.py..."
 
-# 使用 cat EOF 将 Python 代码写入文件
+# 这里我们将 INSTALL_DIR 通过环境变量传给 Python，避免硬编码
+export ECOAMP_TARGET_DIR="$INSTALL_DIR"
+
 cat << 'EOF' > download_EcoAmp.py
 import hmac
 import hashlib
@@ -103,18 +172,12 @@ def get_latest_gonggao():
         timestamp = int(time.time())
         signature = generate_signature(timestamp)
         headers = {'X-API-TIMESTAMP': str(timestamp), 'X-API-SIGNATURE': signature}
-        response = requests.get("http://count.leoduo.cn/get_latest_gonggao", headers=headers)
-        if response.status_code == 502:
-            print("Request failed with status code 502, skipping")
-            return None
+        response = requests.get("http://count.leoduo.cn/get_latest_gonggao", headers=headers, timeout=30)
         if response.status_code == 200:
-            # === 修改点：此处修改为获取 macos_url ===
-            return response.json()['macos_url']
-        else:
-            print(f"Request failed with status code: {response.status_code}, error: {response.text}")
-            return None
+            return response.json().get('macos_url')
+        return None
     except Exception as e:
-        print(f"Exception occurred: {str(e)}")
+        print(f"Exception: {str(e)}")
         return None
 
 def get_download_link(share_url):
@@ -124,35 +187,28 @@ def get_download_link(share_url):
         payload_info = json.dumps({"shareId": shareId, "password": ""})
         url_download = "https://pan.cstcloud.cn/s/api/shareDownloadRequest"
         headers = {
-            'User-Agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            'Accept': "application/json, text/javascript, */*; q=0.01",
+            'User-Agent': "Mozilla/5.0",
             'Content-Type': "application/json; charset=UTF-8",
-            'Origin': "https://pan.cstcloud.cn",
             'Referer': f"https://pan.cstcloud.cn/web/share.html?hash={shareId}",
             'Cookie': "token=4XVqyO_NQNk@607599"
         }
-        
-        response_info = requests.post(url_info, data=payload_info, headers=headers)
-        if response_info.status_code != 200:
-             print(f"Error info: {response_info.text}")
-             return None
-             
+        response_info = requests.post(url_info, data=payload_info, headers=headers, timeout=30)
+        if response_info.status_code != 200: return None
         fid = response_info.json()['share']['fid']
-        
         payload_download = json.dumps({"fid": fid, "shareId": shareId})
-        response_download = requests.post(url_download, data=payload_download, headers=headers)
-        return response_download.json()['downloadUrl']
-    except Exception as e:
-        print(f"Error getting download link: {str(e)}")
+        response_download = requests.post(url_download, data=payload_download, headers=headers, timeout=30)
+        return response_download.json().get('downloadUrl')
+    except:
         return None
 
 def download_file(url, filename):
     print(f"Downloading from: {url}")
-    response = requests.get(url, stream=True)
+    response = requests.get(url, stream=True, timeout=60)
     total_size = int(response.headers.get('content-length', 0))
     progress_bar = tqdm(total=total_size, unit='iB', unit_scale=True)
     with open(filename, 'wb') as file:
         for data in response.iter_content(chunk_size=1024):
+            if not data: continue
             progress_bar.update(len(data))
             file.write(data)
     progress_bar.close()
@@ -167,112 +223,131 @@ def extract_and_flatten(zip_path, target_dir):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             for file_info in zip_ref.infolist():
                 try:
-                    # Windows下常见的编码修复逻辑，保留以防万一
                     file_info.filename = file_info.filename.encode('cp437').decode('gbk')
                 except:
                     pass
                 zip_ref.extract(file_info, temp_dir)
         
-        # 扁平化处理逻辑：如果解压后只有一个文件夹，则移动内容到上一层
+        # Flatten logic: move contents of the inner folder to target_dir
         extracted_items = os.listdir(temp_dir)
-        if len(extracted_items) == 1:
-            top_item = os.path.join(temp_dir, extracted_items[0])
-            if os.path.isdir(top_item):
-                for item in os.listdir(top_item):
-                    src = os.path.join(top_item, item)
-                    dst = os.path.join(target_dir, item)
-                    if os.path.exists(dst):
-                        if os.path.isdir(dst):
-                            shutil.rmtree(dst)
-                        else:
-                            os.remove(dst)
-                    shutil.move(src, dst)
-                # 清理空文件夹
-                if not os.listdir(top_item):
-                    os.rmdir(top_item)
-            else:
-                shutil.move(top_item, os.path.join(target_dir, extracted_items[0]))
-        else:
-            # 如果不是单文件夹结构，将所有内容从 temp 移到 target
-            for item in extracted_items:
-                 src = os.path.join(temp_dir, item)
-                 dst = os.path.join(target_dir, item)
-                 if os.path.exists(dst):
-                    if os.path.isdir(dst):
-                        shutil.rmtree(dst)
-                    else:
-                        os.remove(dst)
-                 shutil.move(src, dst)
-
-    except Exception as e:
-        print(f"Error during extraction: {str(e)}")
-        raise
+        # Assuming typical structure: zip -> EcoAmp_macos/ -> files
+        source_base = temp_dir
+        if len(extracted_items) == 1 and os.path.isdir(os.path.join(temp_dir, extracted_items[0])):
+            source_base = os.path.join(temp_dir, extracted_items[0])
+            
+        for item in os.listdir(source_base):
+            src = os.path.join(source_base, item)
+            dst = os.path.join(target_dir, item)
+            if os.path.exists(dst):
+                if os.path.isdir(dst): shutil.rmtree(dst)
+                else: os.remove(dst)
+            shutil.move(src, dst)
+            
     finally:
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        if os.path.exists(zip_path):
-            try:
-                os.remove(zip_path)
-            except:
-                pass
+        if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
+        if os.path.exists(zip_path): os.remove(zip_path)
 
 if __name__ == '__main__':
-    # 目标安装路径
-    INSTALL_DIR = os.path.expanduser("~/EcoAmp/EcoAmp_macos")
-    ZIP_NAME = "EcoAmp_macos.zip"
+    # 获取环境变量中的安装目录
+    target_dir = os.environ.get("ECOAMP_TARGET_DIR")
+    if not target_dir:
+        print("Error: Target directory not set.")
+        exit(1)
 
+    zip_name = "EcoAmp_macos.zip"
     print("Fetching download link...")
-    download_link = get_latest_gonggao()
-    
-    if download_link and 'pan.cstcloud.cn' in download_link:
-        download_link = get_download_link(download_link)
-        if download_link:
-            download_file(download_link, ZIP_NAME)
-            extract_and_flatten(ZIP_NAME, INSTALL_DIR)
+    link = get_latest_gonggao()
+    if link:
+        d_link = get_download_link(link)
+        if d_link:
+            download_file(d_link, zip_name)
+            extract_and_flatten(zip_name, target_dir)
             print("Download and extraction complete.")
         else:
-            print("Failed to resolve download URL.")
+            print("Failed to get direct download link.")
     else:
-        print(f"Could not get valid pan.cstcloud.cn link. Raw link: {download_link}")
-
+        print("Failed to get update info.")
 EOF
 
-# 4. 执行下载脚本并清理
-# ------------------------------------------------
 echo "[+] 开始执行下载..."
-# 确保使用当前 Conda 环境的 Python
 python download_EcoAmp.py
+rm -f download_EcoAmp.py
 
-echo "[+] 清理临时脚本"
-rm download_EcoAmp.py
+# -----------------------------
+# 4. 创建启动文件（放在同一目录下）
+# -----------------------------
+# 此时，主程序文件应已解压在 $INSTALL_DIR 下
+LAUNCH_SCRIPT="$INSTALL_DIR/EcoAmp.command"
 
-# 5. 创建启动文件
-# ------------------------------------------------
-APP_DIR=~/EcoAmp/EcoAmp_macos
-
-echo "[+] 创建 EcoAmp.command 启动文件"
-cat > "$APP_DIR/EcoAmp.command" <<EOF
+echo "[+] 创建启动文件: EcoAmp.command"
+cat > "$LAUNCH_SCRIPT" <<EOF
 #!/bin/bash
-export PATH="\$HOME/miniconda3/bin:\$PATH"
-source \$HOME/miniconda3/etc/profile.d/conda.sh
+set -e
+
+# 获取脚本所在目录（实现便携性的关键）
+DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" && pwd )"
+
+# 自动寻找 conda base
+find_conda_base() {
+  if command -v conda >/dev/null 2>&1; then
+    local base
+    base="\$(conda info --base 2>/dev/null || true)"
+    if [ -n "\$base" ] && [ -x "\$base/bin/conda" ]; then
+      echo "\$base"
+      return 0
+    fi
+  fi
+
+  local candidates=(
+    "\$HOME/miniconda3"
+    "\$HOME/anaconda3"
+    "/opt/anaconda3"
+    "/opt/miniconda3"
+    "/opt/homebrew/Caskroom/miniconda/base"
+    "/opt/homebrew/Caskroom/anaconda/base"
+    "/usr/local/anaconda3"
+    "/usr/local/miniconda3"
+  )
+
+  for base in "\${candidates[@]}"; do
+    if [ -x "\$base/bin/conda" ]; then
+      echo "\$base"
+      return 0
+    fi
+  done
+  return 1
+}
+
+CONDA_BASE="\$(find_conda_base || true)"
+
+if [ -z "\$CONDA_BASE" ]; then
+  # 尝试用 GUI 提示（如果是在 Finder 中双击运行）
+  osascript -e 'display alert "错误" message "未检测到 Conda 环境，无法启动 EcoAmp。"' >/dev/null 2>&1 || echo "No Conda found."
+  exit 1
+fi
+
+# 初始化并激活环境
+eval "\$("\$CONDA_BASE/bin/conda" shell.bash hook)"
 conda activate EcoAmp_py3115
-cd "$APP_DIR"
-# 确保 main_app_start.py 存在，如果解压后的名字不同，请修改此处
+
+# 进入脚本所在目录运行 Python 主程序
+cd "\$DIR"
 python main_app_start.py
 EOF
 
-chmod +x "$APP_DIR/EcoAmp.command"
+chmod +x "$LAUNCH_SCRIPT"
 
-# 6. 生成 Config 和 Readme (参考 Windows 脚本补充)
-# ------------------------------------------------
+# -----------------------------
+# 5. 生成 Config 和 Readme
+# -----------------------------
 echo "[+] 生成配置文件 config.json"
-cat > "$APP_DIR/config.json" <<EOF
+cat > "$INSTALL_DIR/config.json" <<EOF
 {
      "R_bin": "set the bin path of the R package for the software to function properly",
      "Current_language": "Simplified Chinese",
      "current_name": "",
      "temperature": 0.63,
-     "system": "You are an expert in ecological data analysis, assisting users in analyzing the results of image plotting. You reply to my questions in Chinese. As a built-in assistant of a software, your output environment supports Markdown format, but table output is only supported in HTML format. Remember not to output tables in Markdown format.",
+     "system": "You are an expert in ecological data analysis...",
      "max_token": "5000",
      "stream": true,
      "entries": [],
@@ -282,19 +357,39 @@ cat > "$APP_DIR/config.json" <<EOF
 EOF
 
 echo "[+] 生成说明文件 Readme.txt"
-cat > "$APP_DIR/Readme.txt" <<EOF
-1. EcoAmp is a software designed specifically for ecologists to analyze amplicon data.
-2. The name EcoAmp comes from its purpose, which is to provide ecologists with a convenient tool for processing and analyzing amplicon data.
-3. The data analysis functions of EcoAmp are completely free. If you bought it, you were cheated.
-4. WeChat Public Account: EcoAmp Bioinformatics Analysis
-     Blog URL: https://www.leoduo.cn
-     Technical Support QQ: 2733997298
-     Email: li@leoduo.cn
-If you encounter any issues during use, feel free to contact us through the above methods.
+cat > "$INSTALL_DIR/Readme.txt" <<EOF
+1. EcoAmp 文件夹包含所有程序文件，请勿随意删除内部文件。
+2. 双击本文件夹内的 EcoAmp.command 即可启动软件。
+3. 您可以移动整个 EcoAmp 文件夹到任何位置，不影响使用。
 EOF
 
+# -----------------------------
+# 6. 设置图标
+# -----------------------------
+echo "[+] 设置 EcoAmp.command 图标..."
+cat << 'EOF' > set_file_icon.py
+import Cocoa
+import sys
+import os
+
+def set_icon(icon_path, target_file):
+    if not os.path.exists(icon_path):
+        return
+    image = Cocoa.NSImage.alloc().initWithContentsOfFile_(icon_path)
+    if image:
+        Cocoa.NSWorkspace.sharedWorkspace().setIcon_forFile_options_(image, target_file, 0)
+
+if __name__ == "__main__":
+    if len(sys.argv) > 2:
+        set_icon(sys.argv[1], sys.argv[2])
+EOF
+
+# 图标路径现在在 INSTALL_DIR 下的 ico 文件夹中
+python set_file_icon.py "$INSTALL_DIR/ico/EcoAmp.ico" "$LAUNCH_SCRIPT"
+rm -f set_file_icon.py
+
 echo "==============================================="
-echo "🎉 EcoAmp 已成功安装"
-echo "📂 安装目录: $APP_DIR"
-echo "✨ 双击启动: $APP_DIR/EcoAmp.command"
+echo "🎉 EcoAmp 安装完成！"
+echo "📂 安装位置: $INSTALL_DIR"
+echo "✨ 启动方法: 双击文件夹内的 EcoAmp.command"
 echo "==============================================="
